@@ -13,8 +13,17 @@ MPICC = mpicc
 hello_openmp: hello_openmp.c
 	$(CC) $(OMPFLAGS) -o $@ $^ $(OMPLIBS)
 
+hello_gtmp_counter: hello_gtmp.c gtmp_counter.c
+	$(CC) $(OMPFLAGS) -o $@ $^ $(OMPLIBS)
+
+hello_gtmp_mcs: hello_gtmp.c gtmp_mcs.c
+	$(CC) $(OMPFLAGS) -o $@ $^ $(OMPLIBS)
+
+hello_gtmp_tree: hello_gtmp.c gtmp_tree.c
+	$(CC) $(OMPFLAGS) -o $@ $^ $(OMPLIBS)
+
 hello_mpi: hello_mpi.c
 	$(MPICC) $(MPIFLAGS) -o $@ $^ $(MPILIBS)
 
 clean:
-	rm -rf *.o hello_openmp hello_mpi
+	rm -rf *.o hello_openmp hello_mpi hello_gtmp
