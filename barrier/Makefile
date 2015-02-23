@@ -22,8 +22,11 @@ hello_gtmp_mcs: hello_gtmp.c gtmp_mcs.c
 hello_gtmp_tree: hello_gtmp.c gtmp_tree.c
 	$(CC) $(OMPFLAGS) -o $@ $^ $(OMPLIBS)
 
+hello_gtmp_tree_orig: hello_gtmp.c gtmp_tree_orig.c
+	$(CC) $(OMPFLAGS) -o $@ $^ $(OMPLIBS)
+
 hello_mpi: hello_mpi.c
 	$(MPICC) $(MPIFLAGS) -o $@ $^ $(MPILIBS)
 
 clean:
-	rm -rf *.o hello_openmp hello_mpi hello_gtmp
+	rm -rf *.o hello_openmp hello_mpi_* hello_gtmp_*
