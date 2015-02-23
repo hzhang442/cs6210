@@ -34,6 +34,21 @@
 		repeat until locksense = sense
 */
 
+/** Things changed by tupty to optimize: 
+  (1-4: put each node on its own cache line)
+  1. Make nodes an array of node pointers instead of an array of nodes
+  2. Put each element of nodes on different cache line to avoid false sharing
+  3. Make num_nodes static for cleanup purposes
+  4. Free up individual nodes as well as nodes array
+
+  (5: optimize how we do atomic test and decrement)
+  5. Change OMP critical section to single fetch-and-dec call to reduce 
+     overhead
+
+  (6: make single-line function inline)
+  6. Make _gtmp_get_node an inline function
+*/
+
 
 typedef struct _node_t{
   int k;
@@ -43,16 +58,18 @@ typedef struct _node_t{
 } node_t;
 
 static int num_leaves;
-static node_t* nodes;
+static int num_nodes; /* 3. Static for cleanup purposes */
+static node_t **nodes;
 
 void gtmp_barrier_aux(node_t* node, int sense);
 
-node_t* _gtmp_get_node(int i){
-  return &nodes[i];
+/* 6: Make this inline */
+inline node_t* _gtmp_get_node(int i){
+  return nodes[i];
 }
 
 void gtmp_init(int num_threads){
-  int i, v, num_nodes;
+  int i, v;
   node_t* curnode;
   
   /*Setting constants */
@@ -64,9 +81,14 @@ void gtmp_init(int num_threads){
   num_leaves = v/2;
 
   /* Setting up the tree */
-  nodes = (node_t*) malloc(num_nodes * sizeof(node_t));
+  /* 1. Allocate the array of node pointers */
+  nodes = (node_t **) malloc(num_nodes * sizeof(node_t *));
 
   for(i = 0; i < num_nodes; i++){
+    /* 2. Allocate each node on its own cache line */
+    /* Returns 0 on success, nonzero otherwise */
+    posix_memalign((void **) &(nodes[i]), LEVEL1_DCACHE_LINESIZE, sizeof(node_t));
+
     curnode = _gtmp_get_node(i);
     curnode->k = i < num_threads - 1 ? 2 : 1;
     curnode->count = curnode->k;
@@ -94,15 +116,8 @@ void gtmp_barrier(){
 }
 
 void gtmp_barrier_aux(node_t* node, int sense){
-  int test;
-
-#pragma omp critical
-{
-  test = node->count;
-  node->count--;
-}
-
-  if( 1 == test ){
+  /* Replace omp critical section with atomic instruction */
+  if(1 == __sync_fetch_and_sub(&node->count, 1)){
     if(node->parent != NULL)
       gtmp_barrier_aux(node->parent, sense);
     node->count = node->k;
@@ -112,6 +127,13 @@ void gtmp_barrier_aux(node_t* node, int sense){
 }
 
 void gtmp_finalize(){
+  int i;
+
+  /* 4. Free up individual nodes */
+  for (i = 0; i < num_nodes; i++) {
+    free(nodes[i]);
+  } 
+
   free(nodes);
 }
 
