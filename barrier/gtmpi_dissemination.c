@@ -69,7 +69,7 @@ static int tceil(float val) {
 }
 
 static int specialmath(int i, int k, int p) {
-  int retval = (i + (2 << k)) % p;
+  int retval = (i + (1 << k)) % p;
   if (retval < 0) {
     printf("Negative mod!\n");
     fflush(stdout);
@@ -130,7 +130,7 @@ void gtmpi_barrier(){
     sense_init = !sense_init;
   }
 
-  parity = (parity + 1) % 2;
+  parity_init = (parity + 1) % 2;
 }
 
 void gtmpi_finalize(){
