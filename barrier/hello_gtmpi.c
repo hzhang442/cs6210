@@ -19,12 +19,15 @@ int main(int argc, char **argv)
   uname(&ugnm);
 
   printf("Hello World from thread %d of %d, running on %s.\n", my_id, num_processes, ugnm.nodename);
+  fflush(stdout);
   gtmpi_barrier();
 
   printf("Goodbye cruel world from thread %d of %d, running on %s.\n", my_id, num_processes, ugnm.nodename);
+  fflush(stdout);
   gtmpi_barrier();
 
   printf("Last test from thread %d of %d, running on %s.\n", my_id, num_processes, ugnm.nodename);
+  fflush(stdout);
   gtmpi_barrier();
 
   MPI_Finalize();
