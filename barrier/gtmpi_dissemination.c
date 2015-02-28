@@ -74,11 +74,11 @@ void gtmpi_barrier(){
   for (i = 0; i < num_rounds; i++) {
     // do MPI send here
     dst = (vpid + (1<<i)) % num_procs;
-    MPI_Send(&sense, 1, MPI_CHAR, dst, (i * bar), MPI_COMM_WORLD);
+    MPI_Send(&sense, 1, MPI_CHAR, dst, (i + (bar * num_rounds)), MPI_COMM_WORLD);
 
     // do MPI recv here
     src = ((vpid - (1<<i)) + num_procs) % num_procs;
-    MPI_Recv(&sense, 1, MPI_CHAR, src, (i * bar), MPI_COMM_WORLD, &stat);
+    MPI_Recv(&sense, 1, MPI_CHAR, src, (i + (bar * num_rounds)), MPI_COMM_WORLD, &stat);
   }
 
   if (parity == 1) {
