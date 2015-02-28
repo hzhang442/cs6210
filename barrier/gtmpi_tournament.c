@@ -97,7 +97,7 @@ static int tlog2(int val) {
   int i, j;
 
   num_procs = num_threads;
-  num_rounds = tlog2(num_procs);
+  num_rounds = tlog2(num_procs) + 1;
 
   /* Allocate rounds data structure memory */
   rounds = (round_t **) malloc(num_procs * sizeof(round_t *));
@@ -111,6 +111,7 @@ static int tlog2(int val) {
       
       /* Set up the roles */
       if (j > 0) {
+
         //    winner if k > 0, i mod 2^k = 0, i + 2^(k-1) < P , and 2^k < P
         if ((i % (1 << j) == 0) && (i + (1 << (j-1)) < num_procs) &&
            ((1 << j) < num_procs)) {
