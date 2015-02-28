@@ -32,4 +32,4 @@ hello_gtmpi_dissemination: hello_gtmpi.c gtmpi_dissemination.c
 	$(MPICC) $(MPIFLAGS) -o $@ $^ $(MPILIBS)
 
 clean:
-	rm -rf *.o hello_openmp hello_mpi_* hello_gtmp_*
+	rm -rf *.o hello_openmp hello_mpi_* hello_gtmp_* hello_gtmpi_*
