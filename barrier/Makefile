@@ -34,5 +34,11 @@ hello_gtmpi_dissemination: hello_gtmpi.c gtmpi_dissemination.c
 hello_gtmpi_tournament: hello_gtmpi.c gtmpi_tournament.c
 	$(MPICC) $(MPIFLAGS) -o $@ $^ $(MPILIBS)
 
+hello_gtmpi_counter: hello_gtmpi.c gtmpi_counter.c
+	$(MPICC) $(MPIFLAGS) -o $@ $^ $(MPILIBS)
+
+hello_gtmpi_counter_orig: hello_gtmpi.c gtmpi_counter_orig.c
+	$(MPICC) $(MPIFLAGS) -o $@ $^ $(MPILIBS)
+
 clean:
 	rm -rf *.o hello_openmp hello_mpi_* hello_gtmp_* hello_gtmpi_*
