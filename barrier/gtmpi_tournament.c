@@ -90,7 +90,8 @@ static int tlog2(int val) {
     //we should throw an exception here
   }
 
-  return i;
+  //return i;
+  return ((1 << i) == val) ? i : i+1;
 }
 
  void gtmpi_init(int num_threads){
@@ -167,7 +168,6 @@ void gtmpi_barrier() {
   while (!exit_loop) {
     switch (rounds[vpid][round].role) {
       case LOSER:
-
         // MPI send here
         MPI_Send(&sense, 1, MPI_CHAR, rounds[vpid][round].opponent, 0, MPI_COMM_WORLD);
 
@@ -187,7 +187,6 @@ void gtmpi_barrier() {
         break;
 
       case CHAMPION:
-
         //MPI Recv here
         MPI_Recv(&rounds[vpid][round].flag, 1, MPI_CHAR, rounds[vpid][round].opponent, 0, MPI_COMM_WORLD, &stat);
 
