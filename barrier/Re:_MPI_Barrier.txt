@@ -15,3 +15,39 @@ a dedicated cluster with one process assigned to each node.
 Details individual nodes are attached along with the data from the experiments.
 
 Looking forward to your insight!
+
+
+In this case, it very difficult to tell what the trends are with the different
+barrier implementations because of the number of nodes you used.  At the low
+values, there is a lot of variance in the numbers.  I'd like to see if we can
+do some more test runs to normalize the data and see if we can get some
+smoother curves.  Also, I think we need to run our tests on a larger cluster
+to get a better sense of how each of these algorithms works as the cluster
+size scales up.  Just like with the gtmp library, I am wondering if the small
+scale at which we are running is resulting in the simple algorithms winning out
+merely because the complexity of the other algorithms is overshadowing their
+scalability.
+
+One item of note is that all of the algorithms had identical performance in the
+15 node case.  As you run more tests, I'd like to pay close attention to the
+smoothed-out trends of each algorithm as well any places where one algorithm
+overtakes another as the number of threads scales.  I am wondering if we will
+see the counter barrier get overtaken by other algorithms at 15 nodes in
+multiple runs.  Also, note that I would expect the tournament and dissemination
+barriers to perform very well at scale.  I think they both have strong support
+for using the network efficiently.  In the end, I expect that the tournament
+barrier will fare very well, as each round of the tournament should be able to
+use the network independently of other nodes, and there will be ~log N rounds.
+The same is basically true for the dissemination barrier... it will be sending
+more messages per round, but each message should be sent independently, and
+there should be ~log N rounds.
+
+One thought I had was that you appear to have two connections for each node:
+ * Infiniband connection
+ * 1 Gbps ethernet connection
+
+Are you using both of those for the most parallelism?  Would that even change
+the numbers, or are the code sections being barriered dominating the run time 
+of your application?  The MCS algorithm might benefit from some level of 
+parallelism in both the arrival and wakeup trees if the barriers were occurring
+in quick succession of one another.
