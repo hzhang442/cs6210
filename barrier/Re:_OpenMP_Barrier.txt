@@ -16,3 +16,37 @@ attached along with the data from the experiments.
 Looking forward to your insight!
 
 
+It is a bit curious that the counter barrier had the best performance out of
+all of these implementations.  Might there be some inefficiencies in how the
+other algorithms have been implemented and used?  The numbers you are seeing
+are also going to be affected by the scale at which you run, and by the 
+architecture on which you are performing your testing.  We should either try
+to ensure that our tests are running on a representative scale and architecture
+for our customer base, or else we should expand our testing to include different
+scales and architectures so that our customers would have a menu of which
+barriers they might want to pick given their situation.
+
+In this rounds of tests, you might be running at a small enough scale with 24
+threads that the counter barrier has not really hit the point where the scale
+at which you are running has overtaken the complexity ofi your implementation
+of the other algorithms.  It would be nice to see more tests with higher 
+numbers of threads.  Actually, you mentioned that the system has 24 cores, but
+looking at the info you sent, I believe the system has 24 CPUs with 6 cores
+each, and each CPU has 12 siblings.  That means you have 144 cores with 2 
+hyperthreads each.  You might want to test with at least one thread per core to
+see how each of these algorithms scales.
+
+One other thought... do you know what kind of cache coherence the xeon e5-2630
+is using?  I took a glance at the data sheet, but I didn't notice anything.
+I am guessing it is implemented in hardware, which would be consistent with the
+counter barrier doing well.  If that is not the case, then do you know what 
+kind of interconnection network is being used in the architecture?  If you do
+not have cache coherence, and if the interconnection network allows for
+significant parallelism, then I would expect the tournament, mcs, and 
+dissemination barriers to perform better.  I am guessing that the architecture
+doesn't have an interconnection with a lot of parallelism.  If it does, then 
+we should take a look together at the implementations and see if there are any
+optimizations that we can make.
+
+Thanks!
+Tim
