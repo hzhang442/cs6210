@@ -25,8 +25,30 @@ if (argc < 3) {
    * Consult the RPC Programming Guide.
    */
 
+  /* Create a client stub using tcp for transport mechanism */
+  cl = clnt_create(server, PROXY_RPC, HTTPGETVERS, "tcp");
 
+  if (cl == (CLIENT *) NULL) {
+    clnt_pcreateerror(server);
+    exit(1);
+  }
    
+  result = httpget_1(&url, cl);
+
+  /* Check if RPC mechanism failed... if so, bail */
+  if (result == (char **) NULL) {
+    clnt_perror(cl, server);
+    exit(1);
+  }
+
+  /* Do client application stuff starting here */
+
+  /* Check if a string was returned by application on proxy server */
+  if (*result == (char *) NULL) {
+
+  } else {
+    printf(*result);
+  }
 
   return 0;
 }

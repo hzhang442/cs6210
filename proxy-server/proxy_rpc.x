@@ -4,3 +4,9 @@
  *
  * Your RPCL code here.
 */
+
+program PROXY_RPC {
+  version HTTPGETVERS {
+    string HTTPGET(string) = 1;
+  } = 1;
+} = 0xdeadbea7;
