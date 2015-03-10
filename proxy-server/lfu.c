@@ -150,31 +150,36 @@ int gtcache_set(char *key, void *value, size_t val_size){
   /* Determine if we can add this to the cache without evicting */
   while (need_eviction(val_size)) {
     /* Evict based on LFU policy */
-    id = indexminpq_minindex(&id_by_hits_pq);
-    hits = indexminpq_keyof(&id_by_hits_pq, id);
+    if (!indexminpq_isempty(&id_by_hits_pq)) {
+      id = indexminpq_minindex(&id_by_hits_pq);
+      hits = indexminpq_keyof(&id_by_hits_pq, id);
 
-    indexminpq_delmin(&id_by_hits_pq);
-    victim = &cache.entries[id];
+      indexminpq_delmin(&id_by_hits_pq);
+      victim = &cache.entries[id];
 
-    //printf("Evicting: hits: %d url: %s with id %d\n", *hits, victim->url, id);
-    //fflush(stdout);
+      //printf("Evicting: hits: %d url: %s with id %d\n", *hits, victim->url, id);
+      //fflush(stdout);
 
-    idp = (int *) hshtbl_get(&url_to_id_tbl, victim->url);
-    hshtbl_delete(&url_to_id_tbl, victim->url);
-    free(idp); //FIXME is this necessary?
+      idp = (int *) hshtbl_get(&url_to_id_tbl, victim->url);
+      hshtbl_delete(&url_to_id_tbl, victim->url);
+      free(idp); //FIXME is this necessary?
 
-    steque_push(&free_ids, id);
+      steque_push(&free_ids, id);
 
-    free(hits);
+      free(hits);
 
-    //printf("Freeing up %d of cache\n", (int) victim->size);
-    //fflush(stdout);
+      //printf("Freeing up %d of cache\n", (int) victim->size);
+      //fflush(stdout);
 
-    cache.mem_used -= victim->size;
-    cache.num_entries--;
-    free(victim->data);
-    free(victim->url);
-    victim->size = 0;
+      cache.mem_used -= victim->size;
+      cache.num_entries--;
+      free(victim->data);
+      free(victim->url);
+      victim->size = 0;
+    } else {
+      // the val size is bigger than the total cache available memory
+      return 0;
+    }
   }
 
   /* Get next free ID */
