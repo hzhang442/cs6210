@@ -49,15 +49,10 @@ static steque_t free_ids;
 
 static char need_eviction(size_t added_size) {
   if (cache.num_entries >= cache.max_entries) {
-    printf("Num entries: %d   max entries: %d\n", (int) cache.num_entries, (int) cache.max_entries);
-    fflush(stdout);
     return 1;
   }
 
   if (cache.mem_used + added_size > cache.capacity) {
-    printf("Mem used: %d   requested size: %d   capacity: %d\n", (int) cache.mem_used, (int) added_size, (int) cache.capacity);
-    printf("Num entries: %d   max entries: %d\n", (int) cache.num_entries, (int) cache.max_entries);
-    fflush(stdout);
     return 1;
   }
 
@@ -122,8 +117,8 @@ void* gtcache_get(char *key, size_t *val_size){
     *hits = *hits + 1;
     indexminpq_increasekey(&id_by_hits_pq, id, (void *) hits);
 
-    printf("Cache hit %d on %s with id %d\n", *hits, key, id);
-    fflush(stdout);
+    //printf("Cache hit %d on %s with id %d\n", *hits, key, id);
+    //fflush(stdout);
 
     if (val_size == (size_t *) NULL) {
       /* Return all data */
@@ -161,8 +156,8 @@ int gtcache_set(char *key, void *value, size_t val_size){
     indexminpq_delmin(&id_by_hits_pq);
     victim = &cache.entries[id];
 
-    printf("Evicting: hits: %d url: %s with id %d\n", *hits, victim->url, id);
-    fflush(stdout);
+    //printf("Evicting: hits: %d url: %s with id %d\n", *hits, victim->url, id);
+    //fflush(stdout);
 
     idp = (int *) hshtbl_get(&url_to_id_tbl, victim->url);
     hshtbl_delete(&url_to_id_tbl, victim->url);
@@ -172,8 +167,8 @@ int gtcache_set(char *key, void *value, size_t val_size){
 
     free(hits);
 
-    printf("Freeing up %d of cache\n", (int) victim->size);
-    fflush(stdout);
+    //printf("Freeing up %d of cache\n", (int) victim->size);
+    //fflush(stdout);
 
     cache.mem_used -= victim->size;
     cache.num_entries--;
@@ -195,9 +190,9 @@ int gtcache_set(char *key, void *value, size_t val_size){
   cache.mem_used += val_size;
   cache.num_entries++;
 
-  printf("Caching  %s with id %d\n", key, id);
-  printf("Using up %d of cache\n", (int) val_size);
-  fflush(stdout);
+  //printf("Caching  %s with id %d\n", key, id);
+  //printf("Using up %d of cache\n", (int) val_size);
+  //fflush(stdout);
 
   /* Add to cache */
   memcpy(cache.entries[id].data, value, val_size);
