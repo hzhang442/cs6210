@@ -103,7 +103,6 @@ void* gtcache_get(char *key, size_t *val_size){
   char *data_copy;
   int id;
   int *idp;
-  int len;
 
   idp  = (int *) hshtbl_get(&url_to_id_tbl, key);
 
@@ -120,25 +119,18 @@ void* gtcache_get(char *key, size_t *val_size){
     //printf("Cache hit %d on %s with id %d\n", *hits, key, id);
     //fflush(stdout);
 
-    if (val_size == (size_t *) NULL) {
-      /* Return all data */
-      data_copy = (char *) malloc(cache.entries[id].size);
-      memcpy(data_copy, cache.entries[id].data, cache.entries[id].size);
-      strcpy(cache.entries[id].url, key); // FIXME: Should probably use strncpy for safety
-      /* Assume the last entry in the cache is a null terminator */
-      /* FIXME: verify this works */
-    } else {
-      len = (*val_size > cache.entries[id].size) ? cache.entries[id].size : *val_size;
-      data_copy = (char *) malloc(len);
-      memcpy(data_copy, cache.entries[id].data, len - 1);
-      data_copy[len - 1] = '\0';
-      strcpy(cache.entries[id].url, key); // FIXME: Should probably use strncpy for safety
+    /* Return all data */
+    data_copy = (char *) malloc(cache.entries[id].size);
+    memcpy(data_copy, cache.entries[id].data, cache.entries[id].size);
+    strcpy(cache.entries[id].url, key);
+
+    if (val_size != (size_t *) NULL) {
+      *val_size = cache.entries[id].size;
     }
 
     return data_copy;
   } else {
     /* Cache miss */
-    /* FIXME: find out what we do here */
     return NULL;
   }
 }
