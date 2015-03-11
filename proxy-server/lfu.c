@@ -35,7 +35,7 @@ typedef struct cache {
   cache_entry_t *entries;
 } cache_t;
 
-/* FIXME: Cache data structure */
+/* Cache data structure */
 static cache_t cache;
 
 /* Hash table mapping URL to index in cache */
@@ -94,7 +94,6 @@ int gtcache_init(size_t capacity, size_t min_entry_size, int num_levels){
     steque_push(&free_ids, i);
   }
 
-  /* FIXME: return some value */
   return 1;
 }
 
@@ -116,14 +115,11 @@ void* gtcache_get(char *key, size_t *val_size){
     *hits = *hits + 1;
     indexminpq_increasekey(&id_by_hits_pq, id, (void *) hits);
 
-    //printf("Cache hit %d on %s with id %d\n", *hits, key, id);
-    //fflush(stdout);
-
     /* Return all data */
     data_copy = (char *) malloc(cache.entries[id].size);
     memcpy(data_copy, cache.entries[id].data, cache.entries[id].size);
-    strcpy(cache.entries[id].url, key);
 
+    /* Set val_size if possible */
     if (val_size != (size_t *) NULL) {
       *val_size = cache.entries[id].size;
     }
@@ -149,19 +145,12 @@ int gtcache_set(char *key, void *value, size_t val_size){
       indexminpq_delmin(&id_by_hits_pq);
       victim = &cache.entries[id];
 
-      //printf("Evicting: hits: %d url: %s with id %d\n", *hits, victim->url, id);
-      //fflush(stdout);
-
       idp = (int *) hshtbl_get(&url_to_id_tbl, victim->url);
       hshtbl_delete(&url_to_id_tbl, victim->url);
-      free(idp); //FIXME is this necessary?
-
       steque_push(&free_ids, id);
 
+      free(idp);
       free(hits);
-
-      //printf("Freeing up %d of cache\n", (int) victim->size);
-      //fflush(stdout);
 
       cache.mem_used -= victim->size;
       cache.num_entries--;
@@ -169,14 +158,13 @@ int gtcache_set(char *key, void *value, size_t val_size){
       free(victim->url);
       victim->size = 0;
     } else {
-      // the val size is bigger than the total cache available memory
+      /* the val size is bigger than the total cache available memory */
       return 0;
     }
   }
 
   /* Get next free ID */
   id = (int) steque_pop(&free_ids);
-
   idp = malloc(sizeof(int));
   *idp = id;
 
@@ -186,10 +174,6 @@ int gtcache_set(char *key, void *value, size_t val_size){
   cache.entries[id].url = (char *) malloc(strlen(key));
   cache.mem_used += val_size;
   cache.num_entries++;
-
-  //printf("Caching  %s with id %d\n", key, id);
-  //printf("Using up %d of cache\n", (int) val_size);
-  //fflush(stdout);
 
   /* Add to cache */
   memcpy(cache.entries[id].data, value, val_size);
@@ -204,7 +188,6 @@ int gtcache_set(char *key, void *value, size_t val_size){
   /* Add ID to minpq */
   indexminpq_insert(&id_by_hits_pq, id, (void *) hits);
 
-  /* FIXME: Return some value */   
   return 1;
 }
 
