@@ -61,21 +61,19 @@ static hshtbl_t url_to_id_tbl;
 static indexminpq_t *id_by_time_pq;
 static int num_bands;
 
-/*
- * Level 0:  1 - 2^1 * min entry size
- * Level 1:  2^1 * min entry size + 1   through   2^2 * min entry size
- * ...
- * Level N:  2^N * min entry size + 1   through   2^N+1 * min entry size
- */
-
-
 /* Stack of free IDs for cache */
 static steque_t free_ids;
 
+/*
+ * Level 0:  0 - 2^1 * min entry size - 1
+ * Level 1:  2^1 * min entry size   through   2^2 * min entry size - 1
+ * ...
+ * Level N:  2^N * min entry size   through   2^N+1 * min entry size - 1
+ */
 static int get_band(size_t sz) {
   int i;
-  for (i = 0; sz > ((2 << i) * cache.min_entry_size); i++);
-  return i;
+  for (i = 1; sz >= ((1 << i) * cache.min_entry_size); i++);
+  return i-1;
 }
 
 static char need_eviction(size_t added_size) {
@@ -124,8 +122,11 @@ int gtcache_init(size_t capacity, size_t min_entry_size, int num_levels){
   id_by_time_pq = (indexminpq_t *) malloc(num_bands * sizeof(indexminpq_t));
 
   for (i = 0; i < num_bands; i++) {
+    //printf("Band %d: < %d\n", i, (int) ((2 << i) * cache.min_entry_size));
     indexminpq_init(&id_by_time_pq[i], cache.max_entries, keycmp);
   }
+
+  //fflush(stdout);
 
   /* Populate free_ids */
   for (i = cache.max_entries - 1; i >= 0; i--) {
@@ -184,11 +185,13 @@ int gtcache_set(char *key, void *value, size_t val_size){
     tgt_band = band;
   }
 
+  //printf("Num bands %d\n", num_bands);
+  //printf("Adding to band %d\n", band);
+
   /* Determine if we can add this to the cache without evicting */
   while (need_eviction(val_size)) {
-
-    //printf("New entry band: %d\n", band);
-    //printf("Eviction target band: %d\n", tgt_band);
+    //printf("Attempting to evict from band %d with size %d\n", tgt_band, indexminpq_size(&id_by_time_pq[tgt_band]));
+    //printf("Size needed: %d   Free size: %d\n", (int) val_size, ((int) cache.capacity - (int) cache.mem_used));
     //fflush(stdout);
 
     /* Evict based on LRUMIN policy */
@@ -201,6 +204,10 @@ int gtcache_set(char *key, void *value, size_t val_size){
 
       /* Evict */
       victim = &cache.entries[id];
+
+      //printf("Evicting from band %d, freeing %d\n", tgt_band, (int) victim->size);
+      //fflush(stdout);
+
       idp = (int *) hshtbl_get(&url_to_id_tbl, victim->url);
       hshtbl_delete(&url_to_id_tbl, victim->url);
       steque_push(&free_ids, id);
