@@ -76,6 +76,37 @@ static int get_band(size_t sz) {
   return i-1;
 }
 
+inline int keycmp(void *a, void *b) {
+  struct timeval *x = (struct timeval *) a;
+  struct timeval *y = (struct timeval *) b;
+  return (x->tv_sec * 1000000 + x->tv_usec ) - (y->tv_sec * 1000000 + y->tv_usec);
+}
+
+static int get_lru_band(int min_band, int max_band) {
+  int i, id, band = -1;
+  struct timeval *time, *min_time = NULL;
+
+  for (i = min_band; i <= max_band; i++) {
+    if (!indexminpq_isempty(&id_by_time_pq[i])) {
+
+      id = indexminpq_minindex(&id_by_time_pq[i]);
+      time = indexminpq_keyof(&id_by_time_pq[i], id);
+
+      if (min_time == NULL) {
+        min_time = time;
+        band = i;
+      } else {
+        if (keycmp(min_time, time) > 0) {
+          min_time = time;
+          band = i;
+        }
+      }
+    }
+  }
+
+  return band;
+}
+
 static char need_eviction(size_t added_size) {
   if (cache.num_entries >= cache.max_entries) {
     return 1;
@@ -86,12 +117,6 @@ static char need_eviction(size_t added_size) {
   }
 
   return 0;
-}
-
-inline int keycmp(void *a, void *b) {
-  struct timeval *x = (struct timeval *) a;
-  struct timeval *y = (struct timeval *) b;
-  return (x->tv_sec * 1000000 + x->tv_usec ) - (y->tv_sec * 1000000 + y->tv_usec);
 }
 
 int gtcache_init(size_t capacity, size_t min_entry_size, int num_levels){
@@ -175,73 +200,65 @@ void* gtcache_get(char *key, size_t *val_size){
 int gtcache_set(char *key, void *value, size_t val_size){
   struct timeval *time;
   cache_entry_t *victim;
-  int id, *idp, band, tgt_band;
-
-  band = get_band(val_size);
-
-  if (band + 1 < num_bands) {
-    tgt_band = band + 1;
-  } else {
-    tgt_band = band;
-  }
+  int id, *idp, band, tgt_band, min_band, max_band;
+  size_t eviction_size = val_size;
 
   //printf("Num bands %d\n", num_bands);
   //printf("Adding to band %d\n", band);
 
   /* Determine if we can add this to the cache without evicting */
   while (need_eviction(val_size)) {
+    band = get_band(eviction_size);
+
+    if (band + 1 < num_bands) {
+      min_band = band + 1;
+      max_band = num_bands - 1;
+    } else {
+      min_band = band;
+      max_band = band;
+    }
+
+    // Find the band with the LRU entry >= tgt_band
+    do {
+      tgt_band = get_lru_band(min_band, max_band);
+      if (tgt_band == -1) {
+        max_band = min_band;
+        min_band--;
+      }
+    } while (tgt_band == -1 && min_band >= 0);
+
+    if (min_band < 0) {
+      return 0;
+    }
+
     //printf("Attempting to evict from band %d with size %d\n", tgt_band, indexminpq_size(&id_by_time_pq[tgt_band]));
     //printf("Size needed: %d   Free size: %d\n", (int) val_size, ((int) cache.capacity - (int) cache.mem_used));
+    fflush(stdout);
+
+    /* Remove min val from current band */
+    id = indexminpq_minindex(&id_by_time_pq[tgt_band]);
+    time = indexminpq_keyof(&id_by_time_pq[tgt_band], id);
+    indexminpq_delmin(&id_by_time_pq[tgt_band]);
+
+    /* Evict */
+    victim = &cache.entries[id];
+
+    //printf("Evicting from band %d, freeing %d\n", tgt_band, (int) victim->size);
     //fflush(stdout);
 
-    /* Evict based on LRUMIN policy */
-    if (!indexminpq_isempty(&id_by_time_pq[tgt_band])) {
+    idp = (int *) hshtbl_get(&url_to_id_tbl, victim->url);
+    hshtbl_delete(&url_to_id_tbl, victim->url);
+    steque_push(&free_ids, id);
 
-      /* Remove min val from current band */
-      id = indexminpq_minindex(&id_by_time_pq[tgt_band]);
-      time = indexminpq_keyof(&id_by_time_pq[tgt_band], id);
-      indexminpq_delmin(&id_by_time_pq[tgt_band]);
+    free(idp);
+    free(time);
 
-      /* Evict */
-      victim = &cache.entries[id];
-
-      //printf("Evicting from band %d, freeing %d\n", tgt_band, (int) victim->size);
-      //fflush(stdout);
-
-      idp = (int *) hshtbl_get(&url_to_id_tbl, victim->url);
-      hshtbl_delete(&url_to_id_tbl, victim->url);
-      steque_push(&free_ids, id);
-
-      free(idp);
-      free(time);
-
-      cache.mem_used -= victim->size;
-      cache.num_entries--;
-      free(victim->data);
-      free(victim->url);
-      victim->size = 0;
-    } else {
-      /* When the target level has no more entries, change the level based 
-         on LRUMIN definition */
-      if (tgt_band > band) {
-        /* Try to go up, if possible.  If not, drop to highest level we 
-           have not checked. */
-        if (tgt_band + 1 < num_bands) {
-          tgt_band++;
-        } else {
-          tgt_band = band;
-        }
-      } else {
-        if (tgt_band > 0) {
-          /* Go down a level */
-          tgt_band--;
-        } else {
-          /* Cache has been totally cleaned out, but we still need eviction...
-             new entry is too big! */
-          return 0;
-        }
-      }
-    }
+    eviction_size -= victim->size;
+    cache.mem_used -= victim->size;
+    cache.num_entries--;
+    free(victim->data);
+    free(victim->url);
+    victim->size = 0;
   }
 
   /* Get next free ID */
@@ -265,6 +282,8 @@ int gtcache_set(char *key, void *value, size_t val_size){
 
   time = (struct timeval *) malloc(sizeof(struct timeval));
   gettimeofday(time, NULL);
+
+  band = get_band(val_size);
 
   /* Add ID to minpq */
   indexminpq_insert(&id_by_time_pq[band], id, (void *) time);
