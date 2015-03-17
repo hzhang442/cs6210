@@ -83,25 +83,10 @@ inline int keycmp(void *a, void *b) {
 }
 
 static int get_lru_band(int min_band, int max_band) {
-  int i, id, band = -1;
-  struct timeval *time, *min_time = NULL;
+  int band = -1;
 
-  for (i = min_band; i <= max_band; i++) {
-    if (!indexminpq_isempty(&id_by_time_pq[i])) {
-
-      id = indexminpq_minindex(&id_by_time_pq[i]);
-      time = indexminpq_keyof(&id_by_time_pq[i], id);
-
-      if (min_time == NULL) {
-        min_time = time;
-        band = i;
-      } else {
-        if (keycmp(min_time, time) > 0) {
-          min_time = time;
-          band = i;
-        }
-      }
-    }
+  if (!indexminpq_isempty(&id_by_time_pq[min_band])) {
+    band = min_band;
   }
 
   return band;
@@ -221,9 +206,20 @@ int gtcache_set(char *key, void *value, size_t val_size){
     // Find the band with the LRU entry >= tgt_band
     do {
       tgt_band = get_lru_band(min_band, max_band);
-      if (tgt_band == -1) {
-        max_band = min_band;
-        min_band--;
+
+      if (min_band <= band) {
+        if (tgt_band == -1) {
+          max_band = min_band;
+          min_band--;
+        }
+      } else {
+        if (tgt_band == -1) {
+          if (min_band < num_bands - 1) {
+            min_band++;
+          } else {
+            min_band = band;
+          }
+        }
       }
     } while (tgt_band == -1 && min_band >= 0);
 
