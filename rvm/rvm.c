@@ -7,12 +7,10 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+/* Mostly arbitrary constants, extracted from hardcoded vals in rvm.h */
 #define PATH_BUF_SIZE       (128)
 #define SEGNAME_SIZE        (128)
 #define REDO_PATH_BUF_SIZE  (PATH_BUF_SIZE + 16)
-
-/* Map of segment name to segment_t */
-static seqsrchst_t *segments;
 
 int segname_keyeq(seqsrchst_key a, seqsrchst_key b) {
   return strcmp((char *) a, (char *) b);
@@ -32,6 +30,7 @@ rvm_t rvm_init(const char *directory){
   rvm_t rvm;
 
   rvm = malloc(sizeof(*rvm));
+  rvm->segments = malloc(sizeof(*(rvm->segments)));
 
   /* Only make the directory if it does not exist */
   if (stat(directory, &st) == -1) {
@@ -41,7 +40,7 @@ rvm_t rvm_init(const char *directory){
   strncpy(rvm->prefix, directory, (PATH_BUF_SIZE - 1));
 
   /* Initialize data structures too */
-  seqsrchst_init(segments, segname_keyeq);
+  seqsrchst_init(rvm->segments, segname_keyeq);
   seqsrchst_init(&(rvm->segst), segbase_keyeq);
 
   /* Create redo log file */
@@ -60,8 +59,8 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
   segment_t seg;
 
   /* Check if segment exists by name */
-  if (seqsrchst_contains(segments, (seqsrchst_key) segname)) {
-    seg = (segment_t) seqsrchst_get(segments, (seqsrchst_key) segname);
+  if (seqsrchst_contains(rvm->segments, (seqsrchst_key) segname)) {
+    seg = (segment_t) seqsrchst_get(rvm->segments, (seqsrchst_key) segname);
 
     /* FIXME: is this correct? */
     /* If we are remapping an existing mapped memory location, we need to bail */
@@ -82,6 +81,7 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
     strncpy(seg->segname, segname, SEGNAME_SIZE-1);
     seg->size = size_to_create;
     seg->cur_trans = (trans_t) -1;
+    steque_init(&(seg->mods));
 
     /* If no, malloc memory, create log file, and put into data struct */
     if ((seg->segbase = malloc(size_to_create)) == NULL) {
@@ -89,7 +89,7 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
       return (void *) -1;
     } 
 
-    seqsrchst_put(segments, (seqsrchst_key) seg->segname, (seqsrchst_value) seg);
+    seqsrchst_put(rvm->segments, (seqsrchst_key) seg->segname, (seqsrchst_value) seg);
   }
 
   seqsrchst_put(&(rvm->segst), (seqsrchst_key) seg->segbase, (seqsrchst_value) seg->segname);
@@ -113,8 +113,8 @@ void rvm_unmap(rvm_t rvm, void *segbase){
 void rvm_destroy(rvm_t rvm, const char *segname){
   segment_t seg;
 
-  if (seqsrchst_contains(segments, (seqsrchst_key) segname)) {
-    seg = (segment_t) seqsrchst_get(segments, (seqsrchst_key) segname);
+  if (seqsrchst_contains(rvm->segments, (seqsrchst_key) segname)) {
+    seg = (segment_t) seqsrchst_delete(rvm->segments, (seqsrchst_key) segname);
     free(seg->segbase);
     free(seg);
     /* FIXME: erase backing store? */
@@ -147,8 +147,8 @@ trans_t rvm_begin_trans(rvm_t rvm, int numsegs, void **segbases){
     if (seqsrchst_contains(&(rvm->segst), (seqsrchst_key) segbase)) {
       segname = (char *) seqsrchst_get(&(rvm->segst), (seqsrchst_key) segbase);
      
-      if (seqsrchst_contains(segments, (seqsrchst_key) segname)) {
-        seg = (segment_t) seqsrchst_get(segments, (seqsrchst_key) segname);
+      if (seqsrchst_contains(rvm->segments, (seqsrchst_key) segname)) {
+        seg = (segment_t) seqsrchst_get(rvm->segments, (seqsrchst_key) segname);
 
         /* There is a current transaction using this segment */
         if ((long int) seg->cur_trans != -1) {
@@ -177,23 +177,69 @@ trans_t rvm_begin_trans(rvm_t rvm, int numsegs, void **segbases){
   declare that the library is about to modify a specified range of memory in the specified segment. The segment must be one of the segments specified in the call to rvm_begin_trans. Your library needs to ensure that the old memory has been saved, in case an abort is executed. It is legal call rvm_about_to_modify multiple times on the same memory area.
 */
 void rvm_about_to_modify(trans_t tid, void *segbase, int offset, int size){
+  char *segname, *data_segbase;
+  segment_t seg;
+  mod_t *mod;
 
+  /* Look up segment data structure by segbase */
+  if (seqsrchst_contains(&(tid->rvm->segst), (seqsrchst_key) segbase)) {
+    segname = (char *) seqsrchst_get(&(tid->rvm->segst), (seqsrchst_key) segbase);
 
+    if (seqsrchst_contains(tid->rvm->segments, (seqsrchst_key) segname)) {
+      seg = (segment_t) seqsrchst_get(tid->rvm->segments, (seqsrchst_key) segname);
+    } else {
+      /* FIXME: this is an error, right? */
+      return;
+    }
+  } else { 
+    /* FIXME: this is an error, right? */
+    return;
+  }
+
+  /* Verify that transaction is correct for this segment */
+  /* Just look at the pointer address... is there a reasonable better way? */
+  if (tid != seg->cur_trans) {
+    /* FIXME: this is an error, right? */
+    return;
+  }
+
+  /* Create an undo log entry */
+  mod = (mod_t *) malloc(sizeof(mod_t));
+  mod->offset = offset;
+  mod->size = size;
+  mod->undo = malloc(size);
+  data_segbase = (char *) segbase;
+  memcpy(mod->undo, &(data_segbase[offset]), (size_t) size);
+  steque_push(&(seg->mods), mod);
+
+  /* Prepare redo log entry */
 }
 
 /*
 commit all changes that have been made within the specified transaction. When the call returns, then enough information should have been saved to disk so that, even if the program crashes, the changes will be seen by the program when it restarts.
 */
 void rvm_commit_trans(trans_t tid){
+  /* For all segments that are part of the transaction */
 
+  /* Write redo log entries to log segment on disk */
+  //FIXME: need to somehow note that log segment write is complete?
+
+  /* Clean up in-memory redo log entries */
+
+  /* Clean up undo log */
 }
 
 /*
   undo all changes that have happened within the specified transaction.
  */
 void rvm_abort_trans(trans_t tid){
+  /* For all segments that are part of the transaction */
 
+  /* Apply undo log back to memory */
 
+  /* Clean up in-memory redo log entries */
+
+  /* Clean up undo log */
 }
 
 /*

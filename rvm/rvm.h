@@ -38,9 +38,9 @@ struct segentry_t{
   int segsize;
   int updatesize;
   int numupdates;
-  int* offsets;
-  int* sizes;
-  void *data;
+  int* offsets; /* List of starting points */
+  int* sizes;   /* List of sizes for each data block */
+  void *data;   /* Pointer to start of data block */
 };
 
 /*The redo log */
@@ -55,6 +55,7 @@ struct _rvm_t{
   char prefix[128];   /*The path to the directory holding the segments*/
   int redofd;         /*File descriptor for the redo-log*/
   seqsrchst_t segst;  /*A sequential search dictionary mapping base pointers to segment names*/ 
+  seqsrchst_t *segments; /* A sequential search dictionary mapping segment names to segment structures */
 };
 
 
