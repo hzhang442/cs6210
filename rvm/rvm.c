@@ -11,10 +11,15 @@
 #define SEGNAME_SIZE        (128)
 #define REDO_PATH_BUF_SIZE  (PATH_BUF_SIZE + 16)
 
-static rvm_t rvm;
+/* Map of segment name to segment_t */
+static seqsrchst_t *segments;
 
-int keyeq(seqsrchst_key a, seqsrchst_key b) {
+int segname_keyeq(seqsrchst_key a, seqsrchst_key b) {
   return strcmp((char *) a, (char *) b);
+}
+
+int segbase_keyeq(seqsrchst_key a, seqsrchst_key b) {
+  return (*((long int *) a) == *((long int *) b));
 }
 
 /*
@@ -24,6 +29,9 @@ rvm_t rvm_init(const char *directory){
   char redopath[REDO_PATH_BUF_SIZE];
   FILE *f;
   struct stat st = {0};
+  rvm_t rvm;
+
+  rvm = malloc(sizeof(*rvm));
 
   /* Only make the directory if it does not exist */
   if (stat(directory, &st) == -1) {
@@ -33,13 +41,16 @@ rvm_t rvm_init(const char *directory){
   strncpy(rvm->prefix, directory, (PATH_BUF_SIZE - 1));
 
   /* Initialize data structures too */
-  seqsrchst_init(&(rvm->segst), keyeq);
+  seqsrchst_init(segments, segname_keyeq);
+  seqsrchst_init(&(rvm->segst), segbase_keyeq);
 
   /* Create redo log file */
   strcpy(redopath, rvm->prefix);
   strcpy(&(redopath[strlen(redopath)]), "/redo.log");
   f = fopen(redopath, "w+");
   rvm->redofd = fileno(f);
+
+  return rvm;
 }
 
 /*
@@ -49,8 +60,14 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
   segment_t seg;
 
   /* Check if segment exists by name */
-  if (seqsrchst_contains(&(rvm->segst), (seqsrchst_key) segname)) {
-    seg = (segment_t) seqsrchst_get(&(rvm->segst), (seqsrchst_key) segname);
+  if (seqsrchst_contains(segments, (seqsrchst_key) segname)) {
+    seg = (segment_t) seqsrchst_get(segments, (seqsrchst_key) segname);
+
+    /* FIXME: is this correct? */
+    /* If we are remapping an existing mapped memory location, we need to bail */
+    if (seqsrchst_contains(&(rvm->segst), (seqsrchst_key) seg->segbase)) {
+      return (void *) -1;
+    }
 
     /* Check if the segment size is too small */
     if (seg->size < size_to_create) {
@@ -61,16 +78,21 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
       } 
     }
   } else {
-    seg = malloc(sizeof(struct _segment_t));
+    seg = malloc(sizeof(*seg));
     strncpy(seg->segname, segname, SEGNAME_SIZE-1);
     seg->size = size_to_create;
+    seg->cur_trans = (trans_t) -1;
 
     /* If no, malloc memory, create log file, and put into data struct */
     if ((seg->segbase = malloc(size_to_create)) == NULL) {
       /* We failed, so return error */
       return (void *) -1;
     } 
+
+    seqsrchst_put(segments, (seqsrchst_key) seg->segname, (seqsrchst_value) seg);
   }
+
+  seqsrchst_put(&(rvm->segst), (seqsrchst_key) seg->segbase, (seqsrchst_value) seg->segname);
 
   /* FIXME: make sure that this is the right thing to return */
   return seg->segbase;
@@ -80,28 +102,75 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
   unmap a segment from memory.
 */
 void rvm_unmap(rvm_t rvm, void *segbase){
-
-  /* FIXME: are these the steps for destroy? */
-  /* Look up memory by segbase in data structure */
-  /* Remove that instance */
-  /* Do linux unmap on log */
-  /* Clean up log file handle */
-  /* Free memory */
+  if (seqsrchst_contains(&(rvm->segst), (seqsrchst_key) segbase)) {
+    seqsrchst_delete(&(rvm->segst), (seqsrchst_key) segbase);
+  }
 }
 
 /*
   destroy a segment completely, erasing its backing store. This function should not be called on a segment that is currently mapped.
  */
 void rvm_destroy(rvm_t rvm, const char *segname){
+  segment_t seg;
 
+  if (seqsrchst_contains(segments, (seqsrchst_key) segname)) {
+    seg = (segment_t) seqsrchst_get(segments, (seqsrchst_key) segname);
+    free(seg->segbase);
+    free(seg);
+    /* FIXME: erase backing store? */
+  }
 }
 
 /*
   begin a transaction that will modify the segments listed in segbases. If any of the specified segments is already being modified by a transaction, then the call should fail and return (trans_t) -1. Note that trant_t needs to be able to be typecasted to an integer type.
  */
 trans_t rvm_begin_trans(rvm_t rvm, int numsegs, void **segbases){
+  int i;
+  void *segbase;
+  char *segname;
+  segment_t seg;
+  trans_t trans;
 
+  /* First, set up the transaction structure */
+  if ((trans = (trans_t) malloc(sizeof(*trans))) == NULL) {
+    return (trans_t) -1;
+  }
 
+  trans->rvm = rvm;
+  trans->numsegs = numsegs;
+  trans->segments = malloc(numsegs * sizeof(trans->segments));
+
+  /* Add the segments to the transaction, if possible */
+  for (i = 0; i < numsegs; i++) {
+    segbase = segbases[i];
+    
+    if (seqsrchst_contains(&(rvm->segst), (seqsrchst_key) segbase)) {
+      segname = (char *) seqsrchst_get(&(rvm->segst), (seqsrchst_key) segbase);
+     
+      if (seqsrchst_contains(segments, (seqsrchst_key) segname)) {
+        seg = (segment_t) seqsrchst_get(segments, (seqsrchst_key) segname);
+
+        /* There is a current transaction using this segment */
+        if ((long int) seg->cur_trans != -1) {
+          return (trans_t) -1;
+        } else {
+          /* Set the mappings between segment and transaction */
+          seg->cur_trans = trans;
+          trans->segments[i] = seg;
+        }
+
+      } else {
+        /* Error case: segment not found */
+        return (trans_t) -1;
+      }
+ 
+    } else {
+      /* Error case: segment not mapped */
+      return (trans_t) -1;
+    }
+  }
+
+  return trans;
 }
 
 /*
