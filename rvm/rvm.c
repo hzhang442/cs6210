@@ -12,6 +12,9 @@
 #define SEGNAME_SIZE        (128)
 #define REDO_PATH_BUF_SIZE  (PATH_BUF_SIZE + 16)
 
+static seqsrchst_t *segments;
+static redo_t redolog;
+
 int segname_keyeq(seqsrchst_key a, seqsrchst_key b) {
   return strcmp((char *) a, (char *) b);
 }
@@ -30,7 +33,7 @@ rvm_t rvm_init(const char *directory){
   rvm_t rvm;
 
   rvm = malloc(sizeof(*rvm));
-  rvm->segments = malloc(sizeof(*(rvm->segments)));
+  segments = malloc(sizeof(*segments));
 
   /* Only make the directory if it does not exist */
   if (stat(directory, &st) == -1) {
@@ -40,15 +43,16 @@ rvm_t rvm_init(const char *directory){
   strncpy(rvm->prefix, directory, (PATH_BUF_SIZE - 1));
 
   /* Initialize data structures too */
-  seqsrchst_init(rvm->segments, segname_keyeq);
+  seqsrchst_init(segments, segname_keyeq);
   seqsrchst_init(&(rvm->segst), segbase_keyeq);
 
   /* Create redo log file */
   strcpy(redopath, rvm->prefix);
   strcpy(&(redopath[strlen(redopath)]), "/redo.log");
-  f = fopen(redopath, "w+");
+  f = fopen(redopath, "a");
   rvm->redofd = fileno(f);
-  rvm->redolog = malloc(sizeof(*rvm->redolog));
+  fclose(f);
+  redolog = malloc(sizeof(*redolog));
 
   return rvm;
 }
@@ -60,8 +64,8 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
   segment_t seg;
 
   /* Check if segment exists by name */
-  if (seqsrchst_contains(rvm->segments, (seqsrchst_key) segname)) {
-    seg = (segment_t) seqsrchst_get(rvm->segments, (seqsrchst_key) segname);
+  if (seqsrchst_contains(segments, (seqsrchst_key) segname)) {
+    seg = (segment_t) seqsrchst_get(segments, (seqsrchst_key) segname);
 
     /* FIXME: is this correct? */
     /* If we are remapping an existing mapped memory location, we need to bail */
@@ -90,7 +94,7 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
       return (void *) -1;
     } 
 
-    seqsrchst_put(rvm->segments, (seqsrchst_key) seg->segname, (seqsrchst_value) seg);
+    seqsrchst_put(segments, (seqsrchst_key) seg->segname, (seqsrchst_value) seg);
   }
 
   seqsrchst_put(&(rvm->segst), (seqsrchst_key) seg->segbase, (seqsrchst_value) seg->segname);
@@ -114,8 +118,8 @@ void rvm_unmap(rvm_t rvm, void *segbase){
 void rvm_destroy(rvm_t rvm, const char *segname){
   segment_t seg;
 
-  if (seqsrchst_contains(rvm->segments, (seqsrchst_key) segname)) {
-    seg = (segment_t) seqsrchst_delete(rvm->segments, (seqsrchst_key) segname);
+  if (seqsrchst_contains(segments, (seqsrchst_key) segname)) {
+    seg = (segment_t) seqsrchst_delete(segments, (seqsrchst_key) segname);
     free(seg->segbase);
     free(seg);
     /* FIXME: erase backing store? */
@@ -148,8 +152,8 @@ trans_t rvm_begin_trans(rvm_t rvm, int numsegs, void **segbases){
     if (seqsrchst_contains(&(rvm->segst), (seqsrchst_key) segbase)) {
       segname = (char *) seqsrchst_get(&(rvm->segst), (seqsrchst_key) segbase);
      
-      if (seqsrchst_contains(rvm->segments, (seqsrchst_key) segname)) {
-        seg = (segment_t) seqsrchst_get(rvm->segments, (seqsrchst_key) segname);
+      if (seqsrchst_contains(segments, (seqsrchst_key) segname)) {
+        seg = (segment_t) seqsrchst_get(segments, (seqsrchst_key) segname);
 
         /* There is a current transaction using this segment */
         if ((long int) seg->cur_trans != -1) {
@@ -181,13 +185,14 @@ void rvm_about_to_modify(trans_t tid, void *segbase, int offset, int size){
   char *segname, *data_segbase;
   segment_t seg;
   mod_t *mod;
+  int numentries;
 
   /* Look up segment data structure by segbase */
   if (seqsrchst_contains(&(tid->rvm->segst), (seqsrchst_key) segbase)) {
     segname = (char *) seqsrchst_get(&(tid->rvm->segst), (seqsrchst_key) segbase);
 
-    if (seqsrchst_contains(tid->rvm->segments, (seqsrchst_key) segname)) {
-      seg = (segment_t) seqsrchst_get(tid->rvm->segments, (seqsrchst_key) segname);
+    if (seqsrchst_contains(segments, (seqsrchst_key) segname)) {
+      seg = (segment_t) seqsrchst_get(segments, (seqsrchst_key) segname);
     } else {
       /* FIXME: this is an error, right? */
       return;
@@ -214,25 +219,63 @@ void rvm_about_to_modify(trans_t tid, void *segbase, int offset, int size){
   steque_push(&(seg->mods), mod);
 
   /* Prepare redo log entry */
-  rv
+  redolog->numentries++;
+  numentries = redolog->numentries;
+  redolog->entries = (segentry_t *) realloc(&(redolog->entries), redolog->numentries * sizeof(segentry_t));
+  strcpy(redolog->entries[numentries - 1].segname, segname);
+  redolog->entries[numentries - 1].segsize = seg->size;
+  redolog->entries[numentries - 1].updatesize = size;
+  /* FIXME: For now, assume one single update per area in a transaction */
+  redolog->entries[numentries - 1].numupdates = 1;
+  redolog->entries[numentries - 1].offsets = (int *) malloc(sizeof(int)); 
+  redolog->entries[numentries - 1].offsets[0] = offset;
+  redolog->entries[numentries - 1].sizes = (int *) malloc(sizeof(int));
+  redolog->entries[numentries - 1].sizes[0] = size;
+  redolog->entries[numentries - 1].data = segbase;
 }
 
 /*
 commit all changes that have been made within the specified transaction. When the call returns, then enough information should have been saved to disk so that, even if the program crashes, the changes will be seen by the program when it restarts.
 */
 void rvm_commit_trans(trans_t tid){
-  int i;
+  int i, fd, offset, size;
+  char *segname;
   segment_t seg;
   mod_t *mod;
+  FILE *f;
+  char *data;
+
+  fd = tid->rvm->redofd;
+  f = fdopen(fd, "a");
+
+  /* Write redo log entries to log segment on disk */
+  for (i = 0; i < redolog->numentries; i++) {
+    /* Prepare buffer for writing a line to file */
+    segname = redolog->entries[i].segname;
+    size = redolog->entries[i].sizes[0];
+    offset = redolog->entries[i].offsets[0];
+
+    /* Clean up in-memory redo log entries */
+    free(redolog->entries[i].sizes);
+    free(redolog->entries[i].offsets);
+
+    data = (char *) redolog->entries[i].data;
+
+    fprintf(f, "%s,%d,", segname, offset);
+    fwrite(&(data[offset]), sizeof(char), size, f);
+    fprintf(f, "\n");
+  }
+
+  /* Flush the file to disk */
+  fflush(f);
+
+  /* Clean up in-memory redo log entries */
+  free(redolog->entries);
+  redolog->numentries = 0;
 
   /* For all segments that are part of the transaction */
   for (i = 0; i < tid->numsegs; i++) {
     seg = tid->segments[i];
-
-    /* Write redo log entries to log segment on disk */
-    //FIXME: need to somehow note that log segment write is complete?
-
-    /* Clean up in-memory redo log entries */
 
     /* Clean up undo log */
     while (!steque_isempty(&(seg->mods))) {
@@ -255,25 +298,35 @@ void rvm_commit_trans(trans_t tid){
 void rvm_abort_trans(trans_t tid){
   int i;
   segment_t seg;
-  mod_t mod;
+  mod_t *mod;
+  char *data;
 
   /* For all segments that are part of the transaction */
   for (i = 0; i < tid->numsegs; i++) {
     seg = tid->segments[i];
 
+    data = (char *) seg->segbase;
+
     /* Apply undo log back to memory and clean it up */
     while (!steque_isempty(&(seg->mods))) {
-      mod = (mod_t) steque_pop(&(seg->mods));
-      memcpy(&(seg->segbase[mod->offset]), mod->undo, (size_t) mod->size);
+      mod = (mod_t *) steque_pop(&(seg->mods));
+      memcpy(&(data[mod->offset]), mod->undo, (size_t) mod->size);
       free(mod->undo);
       free(mod);
     }
 
-    /* FIXME: Clean up in-memory redo log entries */
-
     /* Reset transaction id */
     seg->cur_trans = (trans_t) -1;
   }
+
+  /* FIXME: Clean up in-memory redo log entries */
+  for (i = 0; i < redolog->numentries; i++) {
+    free(redolog->entries[i].sizes);
+    free(redolog->entries[i].offsets);
+  }
+
+  free(redolog->entries);
+  redolog->numentries = 0;
 
   free(tid->segments);
   free(tid);
