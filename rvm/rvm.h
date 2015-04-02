@@ -54,6 +54,7 @@ struct _redo_t{
 struct _rvm_t{
   char prefix[128];   /*The path to the directory holding the segments*/
   int redofd;         /*File descriptor for the redo-log*/
+  redo_t redolog;
   seqsrchst_t segst;  /*A sequential search dictionary mapping base pointers to segment names*/ 
   seqsrchst_t *segments; /* A sequential search dictionary mapping segment names to segment structures */
 };

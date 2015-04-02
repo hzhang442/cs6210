@@ -48,6 +48,7 @@ rvm_t rvm_init(const char *directory){
   strcpy(&(redopath[strlen(redopath)]), "/redo.log");
   f = fopen(redopath, "w+");
   rvm->redofd = fileno(f);
+  rvm->redolog = malloc(sizeof(*rvm->redolog));
 
   return rvm;
 }
@@ -213,33 +214,69 @@ void rvm_about_to_modify(trans_t tid, void *segbase, int offset, int size){
   steque_push(&(seg->mods), mod);
 
   /* Prepare redo log entry */
+  rv
 }
 
 /*
 commit all changes that have been made within the specified transaction. When the call returns, then enough information should have been saved to disk so that, even if the program crashes, the changes will be seen by the program when it restarts.
 */
 void rvm_commit_trans(trans_t tid){
+  int i;
+  segment_t seg;
+  mod_t *mod;
+
   /* For all segments that are part of the transaction */
+  for (i = 0; i < tid->numsegs; i++) {
+    seg = tid->segments[i];
 
-  /* Write redo log entries to log segment on disk */
-  //FIXME: need to somehow note that log segment write is complete?
+    /* Write redo log entries to log segment on disk */
+    //FIXME: need to somehow note that log segment write is complete?
 
-  /* Clean up in-memory redo log entries */
+    /* Clean up in-memory redo log entries */
 
-  /* Clean up undo log */
+    /* Clean up undo log */
+    while (!steque_isempty(&(seg->mods))) {
+      mod = (mod_t *) steque_pop(&(seg->mods));
+      free(mod->undo);
+      free(mod);
+    }
+
+    /* Reset transaction id */
+    seg->cur_trans = (trans_t) -1;
+  }
+
+  free(tid->segments);
+  free(tid);
 }
 
 /*
   undo all changes that have happened within the specified transaction.
  */
 void rvm_abort_trans(trans_t tid){
+  int i;
+  segment_t seg;
+  mod_t mod;
+
   /* For all segments that are part of the transaction */
+  for (i = 0; i < tid->numsegs; i++) {
+    seg = tid->segments[i];
 
-  /* Apply undo log back to memory */
+    /* Apply undo log back to memory and clean it up */
+    while (!steque_isempty(&(seg->mods))) {
+      mod = (mod_t) steque_pop(&(seg->mods));
+      memcpy(&(seg->segbase[mod->offset]), mod->undo, (size_t) mod->size);
+      free(mod->undo);
+      free(mod);
+    }
 
-  /* Clean up in-memory redo log entries */
+    /* FIXME: Clean up in-memory redo log entries */
 
-  /* Clean up undo log */
+    /* Reset transaction id */
+    seg->cur_trans = (trans_t) -1;
+  }
+
+  free(tid->segments);
+  free(tid);
 }
 
 /*
