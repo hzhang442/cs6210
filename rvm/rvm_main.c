@@ -23,6 +23,7 @@ void proc1()
   sprintf(segs[0], "hello, world");
      
   rvm_about_to_modify(trans, segs[0], 1000, 100);
+
   sprintf(segs[0]+1000, "hello, world");
    
   rvm_commit_trans(trans);

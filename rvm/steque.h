@@ -30,7 +30,7 @@ void steque_enqueue(steque_t* this, steque_item item);
 /* Adds an element to the "front" of the steque */
 void steque_push(steque_t* this, steque_item item);
 
-/* Removes an element to the "back" of the steque */
+/* Removes an element to the "front" of the steque */
 steque_item steque_pop(steque_t* this);
 
 /* Removes the element on the "front" to the "back" of the steque */

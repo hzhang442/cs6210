@@ -52,7 +52,8 @@ steque_item steque_pop(steque_t* this){
   
   if(this->front == NULL){
     fprintf(stderr, "Error: underflow in steque_pop.\n");
-    exit(1);
+    fflush(stderr);
+    exit(EXIT_FAILURE);
   }
 
   node = this->front;
@@ -80,7 +81,8 @@ void steque_cycle(steque_t* this){
 steque_item steque_front(steque_t* this){
   if(this->front == NULL){
     fprintf(stderr, "Error: underflow in steque_front.\n");
-    exit(1);
+    fflush(stderr);
+    exit(EXIT_FAILURE);
   }
   
   return this->front->item;

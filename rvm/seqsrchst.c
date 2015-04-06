@@ -17,7 +17,7 @@ int seqsrchst_isempty(seqsrchst_t* st){
 }
 
 int seqsrchst_contains(seqsrchst_t* st, seqsrchst_key key){
-  return seqsrchst_get(st, key) == NULL;
+  return seqsrchst_get(st, key) != NULL;
 }
 
 seqsrchst_value seqsrchst_get(seqsrchst_t* st, seqsrchst_key key){

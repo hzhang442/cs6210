@@ -17,7 +17,7 @@ http://amazon.com , 229669
 http://wordpress.com , 9558
 http://google.com.hk , 10933
 http://google.de , 10769
-http://bing.com , 46109
+http://bing.com , 109
 http://google.co.uk , 10732
 http://ebay.com , 172919
 http://yandex.ru , 163160

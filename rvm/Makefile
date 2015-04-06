@@ -1,5 +1,5 @@
 CC = gcc            
-CFLAGS = -Wall   
+CFLAGS = -Wall -g 
 
 # pattern rule for object files
 %.o: %.c

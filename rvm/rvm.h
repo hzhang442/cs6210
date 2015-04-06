@@ -38,9 +38,9 @@ struct segentry_t{
   int segsize;
   int updatesize;
   int numupdates;
-  int* offsets; /* List of starting points */
-  int* sizes;   /* List of sizes for each data block */
-  void *data;   /* Pointer to start of data block */
+  int* offsets;
+  int* sizes;
+  void *data;
 };
 
 /*The redo log */
