@@ -388,12 +388,14 @@ void rvm_abort_trans(trans_t tid){
 */
 void rvm_truncate_log(rvm_t rvm){
   FILE *segfile, *logfile;
-  int i, offset, size, ret;
+  int offset, size, ret;
   char redopath[REDO_PATH_BUF_SIZE];
   char segpath[PATH_BUF_SIZE + SEGNAME_SIZE];
   char *segname, *offsetstr, *sizestr, *data;
   char *line = NULL;
   size_t linelen, bufsz;
+
+  //char testbuf[256];
 
   logfile = fdopen(rvm->redofd, "r");
 
@@ -403,31 +405,26 @@ void rvm_truncate_log(rvm_t rvm){
   }
 
   /* For every entry in the log file */
-  for (i = 0; i < redolog->numentries; i++) {
+  while ((linelen = getline(&line, &bufsz, logfile)) != -1) {
+    /* Extract segment name */
+    segname = strtok(line, ",");
 
-    /* Read in an entry from the log file */
-    if ((linelen = getline(&line, &bufsz, logfile)) != -1) {
+    /* Extract offset */
+    offsetstr = strtok(NULL, ",");
+    offset = atoi(offsetstr);
 
-      /* Extract segment name */
-      segname = strtok(line, ",");
+    /* Extract data size */
+    sizestr = strtok(NULL, ",");
+    size = atoi(sizestr);
 
-      /* Extract offset */
-      offsetstr = strtok(NULL, ",");
-      offset = atoi(offsetstr);
-
-      /* Extract data size */
-      sizestr = strtok(NULL, ",");
-      size = atoi(sizestr);
-
-      /* Extract data */
-      /* FIXME: we should treat the bytes as opaque, and that means there could
-         be a \n character in the data */
-      data = strtok(NULL, "\n");
-    }
+    /* Extract data */
+    /* FIXME: we should treat the bytes as opaque, and that means there could
+       be a \n character in the data */
+    data = strtok(NULL, "\n");
 
     /* Look up the segment path and open the file (if not already open) */
     get_file_path(rvm, segname, segpath);
-    segfile = fopen(segpath, "a+");
+    segfile = fopen(segpath, "r+");
 
     if (segfile == NULL) {
       printf("Couldn't get log file handle with error %d\n", errno);
@@ -441,6 +438,11 @@ void rvm_truncate_log(rvm_t rvm){
       printf("Couldn't seek in segfile with error %d\n", errno);
       fflush(stdout);
     }
+
+    //memcpy(testbuf, data, 12);
+    //testbuf[12] = '\0';
+    //printf("Data for file: %s\n", testbuf);
+    //fflush(stdout);
 
     ret = fwrite(data, sizeof(char), size, segfile);
 
