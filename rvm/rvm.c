@@ -58,7 +58,8 @@ rvm_t rvm_init(const char *directory){
   strcpy(redopath, rvm->prefix);
   strcat(redopath, "/redo.log");
   f = fopen(redopath, "a+");
-  rvm->redofd = fileno(f);
+  fclose(f);
+  //rvm->redofd = fileno(f);
   redolog = malloc(sizeof(*redolog));
 
   return rvm;
@@ -85,6 +86,8 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
     /* FIXME: is this correct? */
     /* If we are remapping an existing mapped memory location, we need to bail */
     if (seqsrchst_contains(&(rvm->segst), (seqsrchst_key) seg->segbase)) {
+      printf("Remapping existing mem segment, bailing...\n");
+      fflush(stdout);
       return (void *) -1;
     }
 
@@ -94,6 +97,8 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
       /* Realloc */
       if ((seg->segbase = realloc(seg->segbase, size_to_create)) == NULL) {
         /* We failed, so return error */
+        printf("Failed to realloc, bailing...\n");
+        fflush(stdout);
         return (void *) -1;
       }
 
@@ -110,6 +115,8 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
     /* If no, malloc memory, create log file, and put into data struct */
     if ((seg->segbase = malloc(size_to_create)) == NULL) {
       /* We failed, so return error */
+      printf("Failed to malloc, bailing...\n");
+      fflush(stdout);
       return (void *) -1;
     } 
 
@@ -131,7 +138,6 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
     fclose(f);
   }
 
-  /* FIXME: make sure that this is the right thing to return */
   return seg->segbase;
 }
 
@@ -195,6 +201,8 @@ trans_t rvm_begin_trans(rvm_t rvm, int numsegs, void **segbases){
 
         /* There is a current transaction using this segment */
         if ((long int) seg->cur_trans != -1) {
+          printf("There is a current transaction using this segment\n");
+          fflush(stdout);
           return (trans_t) -1;
         } else {
           /* Set the mappings between segment and transaction */
@@ -204,11 +212,15 @@ trans_t rvm_begin_trans(rvm_t rvm, int numsegs, void **segbases){
 
       } else {
         /* Error case: segment not found */
+        printf("Segment not found\n");
+        fflush(stdout);
         return (trans_t) -1;
       }
  
     } else {
       /* Error case: segment not mapped */
+      printf("The segment is not mapped\n");
+      fflush(stdout);
       return (trans_t) -1;
     }
   }
@@ -249,7 +261,7 @@ void rvm_about_to_modify(trans_t tid, void *segbase, int offset, int size){
   /* Just look at the pointer address... is there a reasonable better way? */
   if (tid != seg->cur_trans) {
     /* FIXME: this is an error, right? */
-    printf("This segment is not part of the current transaction\n");
+    printf("This segment is not part of the current transaction %p, but instead of %p\n", tid, seg->cur_trans);
     fflush(stdout);
     return;
   }
@@ -284,19 +296,26 @@ void rvm_about_to_modify(trans_t tid, void *segbase, int offset, int size){
 commit all changes that have been made within the specified transaction. When the call returns, then enough information should have been saved to disk so that, even if the program crashes, the changes will be seen by the program when it restarts.
 */
 void rvm_commit_trans(trans_t tid){
-  int i, fd, offset, size;
+  int i, offset, size;
+  //int fd;
   char *segname;
   segment_t seg;
   mod_t *mod;
   FILE *f;
   char *data;
   int writes;
+  char redopath[REDO_PATH_BUF_SIZE];
 
-  fd = tid->rvm->redofd;
-  f = fdopen(fd, "a");
+  strcpy(redopath, tid->rvm->prefix);
+  strcat(redopath, "/redo.log");
+  f = fopen(redopath, "a");
+
+  //fd = tid->rvm->redofd;
+  //f = fdopen(fd, "a");
 
   if (f == NULL) {
     printf("Couldn't open file with error %d\n", errno);
+    fflush(stdout);
   }
 
   /* Write redo log entries to log segment on disk */
@@ -318,7 +337,8 @@ void rvm_commit_trans(trans_t tid){
   }
 
   /* Flush the file to disk */
-  fflush(f);
+  //fflush(f);
+  fclose(f);
 
   /* Clean up in-memory redo log entries */
   free(redolog->entries);
@@ -397,7 +417,11 @@ void rvm_truncate_log(rvm_t rvm){
 
   //char testbuf[256];
 
-  logfile = fdopen(rvm->redofd, "r");
+  strcpy(redopath, rvm->prefix);
+  strcat(redopath, "/redo.log");
+
+  //logfile = fdopen(rvm->redofd, "r");
+  logfile = fopen(redopath, "r");
 
   if (logfile == NULL) {
     printf("Couldn't get log file handle with error %d\n", errno);
@@ -461,9 +485,7 @@ void rvm_truncate_log(rvm_t rvm){
 
   /* Clear out log file and close it out */
   ret = fclose(logfile);
-
-  strcpy(redopath, rvm->prefix);
-  strcat(redopath, "/redo.log");
   logfile = fopen(redopath, "w");
-  rvm->redofd = fileno(logfile);
+  //rvm->redofd = fileno(logfile);
+  fclose(logfile);
 }
