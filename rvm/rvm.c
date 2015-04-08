@@ -342,6 +342,7 @@ void rvm_commit_trans(trans_t tid){
 
   /* Clean up in-memory redo log entries */
   free(redolog->entries);
+  redolog->entries = NULL;
   redolog->numentries = 0;
 
   /* For all segments that are part of the transaction */
@@ -371,6 +372,7 @@ void rvm_abort_trans(trans_t tid){
   segment_t seg;
   mod_t *mod;
   char *data;
+  char buf[256];
 
   /* For all segments that are part of the transaction */
   for (i = 0; i < tid->numsegs; i++) {
@@ -381,7 +383,22 @@ void rvm_abort_trans(trans_t tid){
     /* Apply undo log back to memory and clean it up */
     while (!steque_isempty(&(seg->mods))) {
       mod = (mod_t *) steque_pop(&(seg->mods));
+
+      // Testing code
+      //memcpy(buf, &data[mod->offset], mod->size);
+      //buf[mod->size] = '\0';
+      //printf("Before undo: %s\n", buf);
+
+      //memcpy(buf, mod->undo, mod->size);
+      //buf[mod->size] = '\0';
+      //printf("Undo val: %s\n", buf);
+
       memcpy(&(data[mod->offset]), mod->undo, (size_t) mod->size);
+
+      //memcpy(buf, &data[mod->offset], mod->size);
+      //buf[mod->size] = '\0';
+      //printf("After undo: %s\n", buf);
+
       free(mod->undo);
       free(mod);
     }
@@ -397,6 +414,7 @@ void rvm_abort_trans(trans_t tid){
   }
 
   free(redolog->entries);
+  redolog->entries = NULL;
   redolog->numentries = 0;
 
   free(tid->segments);
