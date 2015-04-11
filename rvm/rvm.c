@@ -17,7 +17,6 @@ static seqsrchst_t *segments;
 static redo_t redolog;
 
 int segname_keyeq(seqsrchst_key a, seqsrchst_key b) {
-  /* FIXME: make sure this is correct */
   return (strcmp((char *) a, (char *) b) == 0);
 }
 
@@ -59,7 +58,6 @@ rvm_t rvm_init(const char *directory){
   strcat(redopath, "/redo.log");
   f = fopen(redopath, "a+");
   fclose(f);
-  //rvm->redofd = fileno(f);
   redolog = malloc(sizeof(*redolog));
 
   return rvm;
@@ -72,6 +70,8 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
   char path[PATH_BUF_SIZE + 1 + SEGNAME_SIZE];
   segment_t seg;
   FILE *f;
+  int oldsize, sizediff = -1;
+  char *data;
 
   /* Do lazy log truncation */
   rvm_truncate_log(rvm);
@@ -83,7 +83,6 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
   if (seqsrchst_contains(segments, (seqsrchst_key) segname)) {
     seg = (segment_t) seqsrchst_get(segments, (seqsrchst_key) segname);
 
-    /* FIXME: is this correct? */
     /* If we are remapping an existing mapped memory location, we need to bail */
     if (seqsrchst_contains(&(rvm->segst), (seqsrchst_key) seg->segbase)) {
       printf("Remapping existing mem segment, bailing...\n");
@@ -102,6 +101,8 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
         return (void *) -1;
       }
 
+      oldsize = seg->size;
+      sizediff = size_to_create - oldsize;
       seg->size = size_to_create;
     }
   } else {
@@ -127,7 +128,17 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
 
   /* This should read in a segment file's contents if the file exists */
   if(access(path, F_OK) != -1) {
-    /* FIXME: neet to set memory in the realloc case */
+
+    /* Need to set memory in the realloc case */
+    if (sizediff > 0) {
+      data = (char *) seg->segbase;
+
+      f = fopen(path, "a+");
+      memset(&(data[oldsize]), 0, sizediff);
+      fwrite(&(data[oldsize]), sizeof(char), sizediff, f);
+      fclose(f);
+    }
+
     f = fopen(path, "r");
     fread(seg->segbase, sizeof(char), seg->size, f);
     fclose(f);
@@ -138,6 +149,9 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
     fclose(f);
   }
 
+  printf("Created segment at %p\n", seg->segbase);
+  fflush(stdout);
+
   return seg->segbase;
 }
 
@@ -146,7 +160,18 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
 */
 void rvm_unmap(rvm_t rvm, void *segbase){
   if (seqsrchst_contains(&(rvm->segst), (seqsrchst_key) segbase)) {
+    printf("Found %p in unmap, deleting...\n", segbase);
+    fflush(stdout);
+
     seqsrchst_delete(&(rvm->segst), (seqsrchst_key) segbase);
+
+    if (seqsrchst_contains(&(rvm->segst), (seqsrchst_key) segbase)) {
+      printf("Found %p in unmap still, delete did not work!\n", segbase);
+      fflush(stdout);
+    }
+  } else {
+    printf("%p was not found in unmap\n", segbase);
+    fflush(stdout);
   }
 }
 
@@ -244,14 +269,11 @@ void rvm_about_to_modify(trans_t tid, void *segbase, int offset, int size){
     if (seqsrchst_contains(segments, (seqsrchst_key) segname)) {
       seg = (segment_t) seqsrchst_get(segments, (seqsrchst_key) segname);
     } else {
-      /* FIXME: this is an error, right? */
       printf("Hit error condition:  segment name not found\n");
       fflush(stdout);
       return;
     }
   } else { 
-
-    /* FIXME: this is an error, right? */
     printf("Hit error condition:  segment base not part of transaction\n");
     fflush(stdout);
     return;
@@ -260,7 +282,6 @@ void rvm_about_to_modify(trans_t tid, void *segbase, int offset, int size){
   /* Verify that transaction is correct for this segment */
   /* Just look at the pointer address... is there a reasonable better way? */
   if (tid != seg->cur_trans) {
-    /* FIXME: this is an error, right? */
     printf("This segment is not part of the current transaction %p, but instead of %p\n", tid, seg->cur_trans);
     fflush(stdout);
     return;
@@ -276,14 +297,14 @@ void rvm_about_to_modify(trans_t tid, void *segbase, int offset, int size){
   steque_push(&(seg->mods), mod);
 
   /* Prepare redo log entry */
-
   redolog->numentries++;
   numentries = redolog->numentries;
   redolog->entries = (segentry_t *) realloc(redolog->entries, redolog->numentries * sizeof(segentry_t));
   strcpy(redolog->entries[numentries - 1].segname, segname);
   redolog->entries[numentries - 1].segsize = seg->size;
   redolog->entries[numentries - 1].updatesize = size;
-  /* FIXME: For now, assume one single update per area in a transaction */
+
+  /* For now, assume one single update per entry in a transaction */
   redolog->entries[numentries - 1].numupdates = 1;
   redolog->entries[numentries - 1].offsets = (int *) malloc(sizeof(int)); 
   redolog->entries[numentries - 1].offsets[0] = offset;
@@ -297,7 +318,6 @@ commit all changes that have been made within the specified transaction. When th
 */
 void rvm_commit_trans(trans_t tid){
   int i, offset, size;
-  //int fd;
   char *segname;
   segment_t seg;
   mod_t *mod;
@@ -309,9 +329,6 @@ void rvm_commit_trans(trans_t tid){
   strcpy(redopath, tid->rvm->prefix);
   strcat(redopath, "/redo.log");
   f = fopen(redopath, "a");
-
-  //fd = tid->rvm->redofd;
-  //f = fdopen(fd, "a");
 
   if (f == NULL) {
     printf("Couldn't open file with error %d\n", errno);
@@ -337,7 +354,6 @@ void rvm_commit_trans(trans_t tid){
   }
 
   /* Flush the file to disk */
-  //fflush(f);
   fclose(f);
 
   /* Clean up in-memory redo log entries */
@@ -372,7 +388,6 @@ void rvm_abort_trans(trans_t tid){
   segment_t seg;
   mod_t *mod;
   char *data;
-  char buf[256];
 
   /* For all segments that are part of the transaction */
   for (i = 0; i < tid->numsegs; i++) {
@@ -383,21 +398,7 @@ void rvm_abort_trans(trans_t tid){
     /* Apply undo log back to memory and clean it up */
     while (!steque_isempty(&(seg->mods))) {
       mod = (mod_t *) steque_pop(&(seg->mods));
-
-      // Testing code
-      //memcpy(buf, &data[mod->offset], mod->size);
-      //buf[mod->size] = '\0';
-      //printf("Before undo: %s\n", buf);
-
-      //memcpy(buf, mod->undo, mod->size);
-      //buf[mod->size] = '\0';
-      //printf("Undo val: %s\n", buf);
-
       memcpy(&(data[mod->offset]), mod->undo, (size_t) mod->size);
-
-      //memcpy(buf, &data[mod->offset], mod->size);
-      //buf[mod->size] = '\0';
-      //printf("After undo: %s\n", buf);
 
       free(mod->undo);
       free(mod);
@@ -407,7 +408,7 @@ void rvm_abort_trans(trans_t tid){
     seg->cur_trans = (trans_t) -1;
   }
 
-  /* FIXME: Clean up in-memory redo log entries */
+  /* Clean up in-memory redo log entries */
   for (i = 0; i < redolog->numentries; i++) {
     free(redolog->entries[i].sizes);
     free(redolog->entries[i].offsets);
@@ -433,12 +434,9 @@ void rvm_truncate_log(rvm_t rvm){
   char *line = NULL;
   size_t linelen, bufsz;
 
-  //char testbuf[256];
-
   strcpy(redopath, rvm->prefix);
   strcat(redopath, "/redo.log");
 
-  //logfile = fdopen(rvm->redofd, "r");
   logfile = fopen(redopath, "r");
 
   if (logfile == NULL) {
@@ -481,11 +479,6 @@ void rvm_truncate_log(rvm_t rvm){
       fflush(stdout);
     }
 
-    //memcpy(testbuf, data, 12);
-    //testbuf[12] = '\0';
-    //printf("Data for file: %s\n", testbuf);
-    //fflush(stdout);
-
     ret = fwrite(data, sizeof(char), size, segfile);
 
     if (ret != size) {
@@ -504,6 +497,5 @@ void rvm_truncate_log(rvm_t rvm){
   /* Clear out log file and close it out */
   ret = fclose(logfile);
   logfile = fopen(redopath, "w");
-  //rvm->redofd = fileno(logfile);
   fclose(logfile);
 }

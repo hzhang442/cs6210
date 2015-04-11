@@ -34,6 +34,9 @@ void proc1()
   printf("Committed trans\n");
   fflush(stdout);
 
+  rvm_unmap(rvm, segs[1]);
+  segs[1] = (char *) rvm_map(rvm, "test2", 150);
+
   trans = rvm_begin_trans(rvm, 1, (void **) &segs[1]);
 
   printf("Began second trans\n");
