@@ -149,9 +149,6 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
     fclose(f);
   }
 
-  printf("Created segment at %p\n", seg->segbase);
-  fflush(stdout);
-
   return seg->segbase;
 }
 
@@ -160,18 +157,7 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
 */
 void rvm_unmap(rvm_t rvm, void *segbase){
   if (seqsrchst_contains(&(rvm->segst), (seqsrchst_key) segbase)) {
-    printf("Found %p in unmap, deleting...\n", segbase);
-    fflush(stdout);
-
     seqsrchst_delete(&(rvm->segst), (seqsrchst_key) segbase);
-
-    if (seqsrchst_contains(&(rvm->segst), (seqsrchst_key) segbase)) {
-      printf("Found %p in unmap still, delete did not work!\n", segbase);
-      fflush(stdout);
-    }
-  } else {
-    printf("%p was not found in unmap\n", segbase);
-    fflush(stdout);
   }
 }
 
@@ -458,9 +444,7 @@ void rvm_truncate_log(rvm_t rvm){
     size = atoi(sizestr);
 
     /* Extract data */
-    /* FIXME: we should treat the bytes as opaque, and that means there could
-       be a \n character in the data */
-    data = strtok(NULL, "\n");
+    data = sizestr + (strlen(sizestr)+1);
 
     /* Look up the segment path and open the file (if not already open) */
     get_file_path(rvm, segname, segpath);
